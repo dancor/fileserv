@@ -5,7 +5,7 @@ license-file:   LICENSE
 author:         dan corson <danl@alum.mit.edu>
 synopsis:       <syn>
 build-type:     Simple
-build-depends:  base, haskell98
+build-depends:  base, haskell98, containers, xhtml, filepath, directory, HAppS-Server, mtl
 
 executable:     fileserv
 main-is:        Main.hs
