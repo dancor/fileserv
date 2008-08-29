@@ -31,6 +31,14 @@ dirify dir fs = concatHtml $ map (\d -> toHtml
 
 myMimeTypes = Map.insert "mem" "text/plain; charset=utf-8" mimeTypes
 
+rootOrServe req =  if rqPaths req == []
+  then fileServe' "index.html" fdir myMimeTypes req
+  else fileServe' "." fdir myMimeTypes req where
+      fdir _mime _rq fp = do
+        contents <- liftIO $ getDirectoryContents fp
+        return $ toResponse $ dirify fp $ filter (`notElem` ["."] ++
+          (if fp == "." then [".."] else [])) $ contents
+
 main = do
   --print myMimeTypes
   args <- getArgs
@@ -41,8 +49,4 @@ main = do
       ioError (userError (concat errs ++ usageInfo header progOpts))
   simpleHTTP nullConf {port=(optPort opts)} [
     dir "req" [withRequest $ ok . toResponse . show],
-    withRequest $ fileServe' "." fdir myMimeTypes] where
-      fdir _mime _rq fp = do
-        contents <- liftIO $ getDirectoryContents fp
-        return $ toResponse $ dirify fp $ filter (`notElem` ["."] ++
-          (if fp == "." then [".."] else [])) $ contents
+    withRequest rootOrServe]
