@@ -2,6 +2,7 @@ import Control.Monad.Trans
 import Data.List
 import Data.Maybe
 import HAppS.Server
+import HTTP.FileServe
 import System.Directory
 import System.Environment
 import System.FilePath
