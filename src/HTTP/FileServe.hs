@@ -1,9 +1,5 @@
 {-# OPTIONS -fglasgow-exts #-}
-module HTTP.FileServe
-    (
-     --MimeMap,fileServe, mimeTypes,isDot, blockDotFiles,doIndex,errorwrapper,fileServe'
-     fileServe'
-    ) where
+module HTTP.FileServe (fileServe') where
 
 import Control.Exception
 import Control.Monad.Reader
@@ -20,40 +16,6 @@ import qualified Data.ByteString.Char8 as P
 import qualified Data.ByteString.Lazy.Char8 as L
 import qualified Data.Map as Map
 import qualified HAppS.Server.SimpleHTTP as SH
-
--- mapResult :: (IO Result -> IO Result) -> [ServerPart] -> ServerPart
--- mapResult fn parts = ReaderT $ \rq -> fmap fn (runReaderT (multi parts) rq
-
-errorwrapper :: MonadIO m => String -> String -> ServerPartT m Response
-errorwrapper binarylocation loglocation = require getErrorLog $ \errorLog ->
-  --[method () $ SH.ok errorLog]
-  [anyRequest $ liftIO $ return $ toResponse errorLog]
-  where
-  handleIOErr :: IOException -> IO (Maybe a)
-  handleIOErr _ = return Nothing
-  getErrorLog = liftIO . handle handleIOErr $ do
-    bintime <- getModificationTime binarylocation
-    logtime <- getModificationTime loglocation
-    if logtime > bintime
-      then fmap Just $ readFile loglocation
-      else return Nothing
-
-type MimeMap = Map.Map String String
-
-doIndex [] _mime _rq _fp = do setResponseCode 403
-                              return $ toResponse "Directory index forbidden"
-doIndex (index:rest) mime rq fp =
-    do
-    let path = fp++'/':index
-    --print path
-    fe <- liftIO $ doesFileExist path
-    if fe then retFile path else doIndex rest mime rq fp
-    where retFile = returnFile mime rq
-defaultIxFiles= ["index.html","index.xml","index.gif"]
-
-fileServe :: MonadIO m => [FilePath] -> FilePath -> ServerPartT m Response
-fileServe ixFiles localpath  =
-    withRequest (fileServe' localpath (doIndex (ixFiles++defaultIxFiles)) mimeTypes)
 
 -- | Serve files with a mime type map under a directory.
 --   Uses the function to transform URIs to FilePaths.
@@ -79,21 +41,15 @@ fileServe' localpath fdir mime rq = do
     getFile mime fp >>= flip either (renderResponse mime rq)
                 (const $ returnGroup localpath mime rq safepath)
 
-returnFile mime rq fp =
-    getFile mime fp >>=  either fileNotFound (renderResponse mime rq)
-
 -- if fp has , separated then return concatenation with content-type of last
 -- and last modified of latest
-tr a b list = map (\x->if x==a then b else x) list
-ltrim = dropWhile (flip elem " \t\r")
+tr a b = map $ \ x -> if x == a then b else x
+ltrim = dropWhile $ flip elem " \t\r"
 
 returnGroup localPath mime rq fp = do
-  let fps0 = map ((:[]). ltrim) $ lines $ tr ',' '\n' $ last fp
+  let fps0 = map ((:[]) . ltrim) . lines . tr ',' '\n' $ last fp
       fps = map (intercalate "/" . ((localPath:init fp) ++)) fps0
-
-  -- if (head $ head fps0)=="TEST" then   renderResponse mime rq fakeFile else do
-
-  mbFiles <-  mapM (getFile mime) $ fps
+  mbFiles <- mapM (getFile mime) $ fps
   let notFounds = [x | Left x <- mbFiles]
       files = [x | Right x <- mbFiles]
   if not $ null notFounds
@@ -104,11 +60,9 @@ returnGroup localPath mime rq fp = do
   renderResponse mime rq ((maxTime,totSize),(fst $ snd $ head files,
                                              L.concat $ map (snd . snd) files))
 
-
-
 fileNotFound fp = do setResponseCode 404
                      return $ toResponse $ "File not found "++ fp
---fakeLen = 71* 1024
+
 fakeFile fakeLen = ((TOD 0 0,L.length body),("text/javascript",body))
     where
       body = L.pack $ (("//"++(show len)++" ") ++ ) $ (take len $ repeat '0') ++ "\n"
@@ -124,8 +78,6 @@ getFile mime fp = do
   size <- liftIO $ hFileSize h
   lbs <- liftIO $ L.hGetContents h
   return $ Right ((time,size),(ct,lbs))
-
-
 
 renderResponse mime rq ((modtime,size),(ct,body)) = do
 
@@ -143,44 +95,4 @@ renderResponse mime rq ((modtime,size),(ct,body)) = do
   modifyResponse (setHeader "Content-Type" ct)
   return $ resultBS 200 body
 
-
-
-
 getExt fPath = reverse $ takeWhile (/='.') $ reverse fPath
-
--- | Ready collection of common mime types.
-mimeTypes :: MimeMap
-mimeTypes = Map.fromList
-	    [("xml","application/xml")
-	    ,("xsl","application/xml")
-	    ,("js","text/javascript")
-	    ,("html","text/html")
-	    ,("css","text/css")
-	    ,("gif","image/gif")
-	    ,("jpg","image/jpeg")
-	    ,("png","image/png")
-	    ,("txt","text/plain")
-	    ,("doc","application/msword")
-	    ,("exe","application/octet-stream")
-	    ,("pdf","application/pdf")
-	    ,("zip","application/zip")
-	    ,("gz","application/x-gzip")
-	    ,("ps","application/postscript")
-	    ,("rtf","application/rtf")
-	    ,("wav","application/x-wav")
-	    ,("hs","text/plain")]
-
-
-
-blockDotFiles :: (Request -> IO Response) -> Request -> IO Response
-blockDotFiles fn rq
-    | isDot (intercalate "/" (rqPaths rq)) = return $ result 403 "Dot files not allowed."
-    | otherwise = fn rq
-
-isDot = isD . reverse
-    where
-    isD ('.':'/':_) = True
-    isD ['.']       = True
-    --isD ('/':_)     = False
-    isD (_:cs)      = isD cs
-    isD []          = False

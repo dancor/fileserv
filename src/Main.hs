@@ -34,7 +34,10 @@ dirify dir fs = concatHtml $ map (\d -> toHtml
   sort fs
 
 myMimeTypes :: Map.Map [Char] [Char]
-myMimeTypes = Map.insert "mem" "text/plain; charset=utf-8" mimeTypes
+myMimeTypes = Map.fromList [
+  ("svg", "image/svg+xml; charset=utf-8"),
+  ("mem", "text/plain; charset=utf-8")
+  ] `Map.union` mimeTypes
 
 rootOrServe :: (MonadIO m) => Request -> WebT m Response
 rootOrServe req =  if rqPaths req == []
@@ -95,12 +98,33 @@ dopost req = let
   -- FIXME: error better?
   origAction = snd $ head origActionL
   hids = concatHtml $ map (uncurry hidden) inps'
-  --in ok . toResponse $ 
+  --in ok . toResponse $
   in ok . toResponse $ concatHtml [
     toHtml "posting..",
     form hids ! [method "POST", action origAction],
     script $ toHtml "document.forms[0].submit()"
     ]
+
+ch :: (Monad m) => Request -> WebT m Response
+ch req = ok . toResponse $ concatHtml [
+  svg "bb",
+  toHtml "test"
+  ]
+  where
+  svg s = object ! [
+    thetype "image/svg+xml",
+    --strAttr "data" $ "../img/g/ch/" ++ s ++ ".svg"
+    --strAttr "data" $ "http://localhost/img/g/ch/" ++ s ++ ".svg"
+    strAttr "data" $ "http://localhost/img/g/ch/svg-document1.svg"
+    ] $ toHtml "lol"
+  {-
+  svg s = object ! [
+    thetype "image/svg+xml",
+    strAttr "data"
+      "http://benjamin.smedbergs.us/blog/wp-content/uploads/2008/12/\
+      \svg-document1.svg"
+    ] $ toHtml "lol"
+  -}
 
 main :: IO ()
 main = do
@@ -109,10 +133,11 @@ main = do
   let header = "lol"
   (opts, []) <- case getOpt Permute progOpts args of
     (o, n, []) -> return (foldl (flip id) defOpts o, n)
-    (_, _, errs) -> 
+    (_, _, errs) ->
       ioError (userError (concat errs ++ usageInfo header progOpts))
   simpleHTTP nullConf {port=(optPort opts)} [
     dir "req" [withRequest $ ok . toResponse . show],
+    dir "ch" [withRequest ch],
     dir "getpost" [withRequest getpost],
     dir "dopost" [withRequest dopost],
     withRequest rootOrServe]
