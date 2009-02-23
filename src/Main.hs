@@ -1,5 +1,10 @@
-import Control.Monad.Trans
+import Chess
+import Control.Applicative
 import Control.Arrow hiding ((+++))
+import Control.Monad.Error
+import Control.Monad.State
+import Control.Monad.Trans
+import Data.Array hiding ((!))
 import Data.Char
 import Data.List
 import Data.Maybe
@@ -12,8 +17,9 @@ import System.FilePath
 import System.Console.GetOpt
 import Text.XHtml hiding (dir)
 import Network.URI
-import qualified Data.Map as Map
 import qualified Data.ByteString.Lazy as BS
+import qualified Data.Map as M
+import qualified Data.Set as S
 
 data Opts = Opts {
   optPort :: Int
@@ -34,11 +40,11 @@ dirify dir fs = concatHtml $ map (\d -> toHtml
   (HotLink (joinPath ["/", dir, d]) (toHtml d) []) +++ br) $
   sort fs
 
-myMimeTypes :: Map.Map [Char] [Char]
-myMimeTypes = Map.fromList [
+myMimeTypes :: M.Map [Char] [Char]
+myMimeTypes = M.fromList [
   ("svg", "image/svg+xml; charset=utf-8"),
   ("mem", "text/plain; charset=utf-8")
-  ] `Map.union` mimeTypes
+  ] `M.union` mimeTypes
 
 rootOrServe :: (MonadIO m) => Request -> WebT m Response
 rootOrServe req =  if rqPaths req == []
@@ -105,28 +111,86 @@ dopost req = let
     script $ toHtml "document.forms[0].submit()"
     ]
 
-checkerBool :: [[Bool]]
-checkerBool = cycle [True, False] : cycle [False, True] : checkerBool
-
-readFen :: String -> [[String]]
-readFen = map (concatMap readFenCh) . breaks (== '/') . takeWhile (/= ' ')
-  where
-  readFenCh :: Char -> [String]
-  readFenCh x = case readMb [x] of
-    Just i -> replicate i ""
-    _ -> [(if x == xLow then 'b' else 'w'):[xLow]] where xLow = toLower x
+readFen :: String -> Either String Game
+readFen fen = do
+  let
+    readFenCh :: Char -> Either String [BdSq]
+    readFenCh x = case readMb [x] of
+      Just i -> return $ replicate i Emp
+      _ -> if xUp `elem` "PNBRQK"
+        then return [HasP (if x == xUp then CW else CB) xUp]
+        else throwError $ "unknown piece type" ++ [xUp]
+        where xUp = toUpper x
+  [fenBd, fenColor, fenCastle, fenPassant, _fenHalfMvClock, _fenMv] <- do
+    let
+      fenParts = breaks (== ' ') fen
+      fenPartsLen = length fenParts
+    if fenPartsLen >= 1 && fenPartsLen <= 6
+      then return $ fenParts ++ drop fenPartsLen ["", "w", "KQkq", "-", "", ""]
+      else throwError "fen syntax"
+  bd <- mapM ((concat <$>) . mapM readFenCh) $ breaks (== '/') fenBd
+  let bdH = length bd
+  when (bdH == 0) $ throwError "board cannot have height zero"
+  let bdW = length (bd !! 0)
+  color <- case fenColor of
+    "w" -> return CW
+    "b" -> return CB
+    _ -> throwError $
+      "fen \"active color\" should be \"w\" or \"b\", but got: " ++ fenColor
+  let
+    canCastle = M.fromList [
+      (CW, S.fromList $ filter isLower fenCastle),
+      (CB, S.fromList . map toLower $ filter isUpper fenCastle)
+      ]
+  lastPawn2 <- case fenPassant of
+    "-" -> return Nothing
+    c -> do
+      let (iMb, jMb) = evalState parseCoord c
+      i <- maybe
+        (throwError $ "could not read x-coord of enPassant info: " ++ c)
+        return iMb
+      j <- maybe
+        (throwError $ "could not read y-coord of enPassant info: " ++ c)
+        return jMb
+      if i >= 1 && i <= bdW && j >= 1 && j <= bdH
+        then return $ Just (i :: Int, j :: Int)
+        else throwError $
+          "fen en passant information off board: " ++ fenPassant
+  return $ Game {
+    gmBd = Bd $ listArray ((1, 1), (bdW, bdH)) $ concat bd,
+    gmTurn = color,
+    gmLastPawn2 = lastPawn2,
+    gmCanCastle = canCastle,
+    gmHist = []
+    }
 
 fenStart :: String
 fenStart = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 ch :: (Monad m) => Request -> WebT m Response
-ch req = ok . toResponse . renderPos $ readFen fen where
-  inps = procQuery $ rqInputs req
+ch req = ok $ toResponse resp where
+  resp = case readFen fen of
+    Right gm -> case foldM (flip doMvStrPure) gm moves of
+      Right gm' -> renderGm gm'
+      Left err -> toHtml err
+    Left err -> toHtml err
   fen = fromMaybe fenStart $ lookup "fen" inps
-  renderPos = (table ! [border 0, cellpadding 0, cellspacing 0]) . toHtml .
-    aboves . map besides .  zipWith (zipWith (\ whiteSq piece -> td ! [
-      width w, height h, strAttr "bgcolor" $ if whiteSq then "#ff7" else "#770"
-      ] $ if null piece then noHtml else svg piece)) checkerBool
+  moves = filter (not . all (\ x -> isDigit x || x == '.')) . words .
+    fromMaybe "" $ lookup "pgn" inps
+  inps = procQuery $ rqInputs req
+  renderGm :: Game -> Html
+  renderGm gm = (table ! [border 0, cellpadding 0, cellspacing 0]) . toHtml .
+    aboves . map besides . splitN bdW . map (\ ((i, j), p) -> td ! [
+      width w, height h,
+      strAttr "bgcolor" $ if (i + j) `mod` 2 == 0 then "#ff7" else "#770"
+      ] $ renderBdSq p) $ assocs bd
+    where
+    Bd bd = gmBd gm
+    (bdW, _bdH) = bdBounds $ gmBd gm
+  renderBdSq :: BdSq -> Html
+  renderBdSq Emp = noHtml
+  renderBdSq (HasP CW p) = svg $ "w" ++ [toLower p]
+  renderBdSq (HasP CB p) = svg $ "b" ++ [toLower p]
   w = "48"
   h = w
   svg s = object ! [
