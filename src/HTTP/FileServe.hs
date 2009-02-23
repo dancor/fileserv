@@ -25,18 +25,18 @@ import qualified HAppS.Server.SimpleHTTP as SH
 -- mapResult fn parts = ReaderT $ \rq -> fmap fn (runReaderT (multi parts) rq
 
 errorwrapper :: MonadIO m => String -> String -> ServerPartT m Response
-errorwrapper binarylocation loglocation
-    = require getErrorLog $ \errorLog ->
-      --[method () $ SH.ok errorLog]
-      [anyRequest $ liftIO $ return $ toResponse errorLog]
-    where getErrorLog
-              = liftIO $
-                handleJust ioErrors (const (return Nothing)) $
-                do bintime <- getModificationTime binarylocation
-                   logtime <- getModificationTime loglocation
-                   if (logtime > bintime)
-                     then fmap Just $ readFile loglocation -- fileServe [loglocation] [] "./"
-                     else return Nothing
+errorwrapper binarylocation loglocation = require getErrorLog $ \errorLog ->
+  --[method () $ SH.ok errorLog]
+  [anyRequest $ liftIO $ return $ toResponse errorLog]
+  where
+  handleIOErr :: IOException -> IO (Maybe a)
+  handleIOErr _ = return Nothing
+  getErrorLog = liftIO . handle handleIOErr $ do
+    bintime <- getModificationTime binarylocation
+    logtime <- getModificationTime loglocation
+    if logtime > bintime
+      then fmap Just $ readFile loglocation
+      else return Nothing
 
 type MimeMap = Map.Map String String
 
@@ -52,7 +52,7 @@ doIndex (index:rest) mime rq fp =
 defaultIxFiles= ["index.html","index.xml","index.gif"]
 
 fileServe :: MonadIO m => [FilePath] -> FilePath -> ServerPartT m Response
-fileServe ixFiles localpath  = 
+fileServe ixFiles localpath  =
     withRequest (fileServe' localpath (doIndex (ixFiles++defaultIxFiles)) mimeTypes)
 
 -- | Serve files with a mime type map under a directory.
@@ -64,7 +64,7 @@ fileServe' localpath fdir mime rq = do
         filepath = intercalate "/"  (localpath:safepath)
         fp' = if null safepath then "" else last safepath
     if "TESTH" `isPrefixOf` fp'
-        then renderResponse mime rq $ fakeFile $ read $ drop 5 $ fp' 
+        then renderResponse mime rq $ fakeFile $ read $ drop 5 $ fp'
         else do
     fe <- liftIO $ doesFileExist fp
     fe2 <- liftIO $ doesFileExist fp2
@@ -76,16 +76,16 @@ fileServe' localpath fdir mime rq = do
                | True = "NOT FOUND"
     liftIO $ logM "HAppS.Server.HTTP.FileServe" INFO ("fileServe: "++show fp++" \t"++status)
     if de then fdir mime rq fp else do
-    getFile mime fp >>= flip either (renderResponse mime rq) 
+    getFile mime fp >>= flip either (renderResponse mime rq)
                 (const $ returnGroup localpath mime rq safepath)
 
-returnFile mime rq fp =  
+returnFile mime rq fp =
     getFile mime fp >>=  either fileNotFound (renderResponse mime rq)
 
 -- if fp has , separated then return concatenation with content-type of last
 -- and last modified of latest
 tr a b list = map (\x->if x==a then b else x) list
-ltrim = dropWhile (flip elem " \t\r")   
+ltrim = dropWhile (flip elem " \t\r")
 
 returnGroup localPath mime rq fp = do
   let fps0 = map ((:[]). ltrim) $ lines $ tr ',' '\n' $ last fp
@@ -96,7 +96,7 @@ returnGroup localPath mime rq fp = do
   mbFiles <-  mapM (getFile mime) $ fps
   let notFounds = [x | Left x <- mbFiles]
       files = [x | Right x <- mbFiles]
-  if not $ null notFounds 
+  if not $ null notFounds
     then fileNotFound $ drop (length localPath) $ head notFounds else do
   let totSize = sum $ map (snd . fst) files
       maxTime = maximum $ map (fst . fst) files :: ClockTime
@@ -106,7 +106,7 @@ returnGroup localPath mime rq fp = do
 
 
 
-fileNotFound fp = do setResponseCode 404 
+fileNotFound fp = do setResponseCode 404
                      return $ toResponse $ "File not found "++ fp
 --fakeLen = 71* 1024
 fakeFile fakeLen = ((TOD 0 0,L.length body),("text/javascript",body))
@@ -118,7 +118,7 @@ getFile mime fp = do
   let ct = Map.findWithDefault "text/plain" (getExt fp) mime
   fe <- liftIO $ doesFileExist fp
   if not fe then return $ Left fp else do
-  
+
   time <- liftIO  $ getModificationTime fp
   h <- liftIO $ openBinaryFile fp ReadMode
   size <- liftIO $ hFileSize h
@@ -130,7 +130,7 @@ getFile mime fp = do
 renderResponse mime rq ((modtime,size),(ct,body)) = do
 
   let notmodified = getHeader "if-modified-since" rq == Just (P.pack $ repr)
-      repr = formatCalendarTime defaultTimeLocale 
+      repr = formatCalendarTime defaultTimeLocale
              "%a, %d %b %Y %X GMT" (toUTCTime modtime)
   -- "Mon, 07 Jan 2008 19:51:02 GMT"
   -- when (isJust $ getHeader "if-modified-since"  rq) $ error $ show $ getHeader "if-modified-since" rq
@@ -140,10 +140,10 @@ renderResponse mime rq ((modtime,size),(ct,body)) = do
   modifyResponse (setHeader "Last-modified" repr)
   -- if %Z or UTC are in place of GMT below, wget complains that the last-modified header is invalid
   modifyResponse (setHeader "Content-Length" (show size))
-  modifyResponse (setHeader "Content-Type" ct)  
+  modifyResponse (setHeader "Content-Type" ct)
   return $ resultBS 200 body
 
-              
+
 
 
 getExt fPath = reverse $ takeWhile (/='.') $ reverse fPath
