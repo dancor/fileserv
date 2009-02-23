@@ -3,6 +3,7 @@ import Control.Arrow hiding ((+++))
 import Data.Char
 import Data.List
 import Data.Maybe
+import FUtil
 import HAppS.Server hiding (method)
 import HTTP.FileServe
 import System.Directory
@@ -98,33 +99,40 @@ dopost req = let
   -- FIXME: error better?
   origAction = snd $ head origActionL
   hids = concatHtml $ map (uncurry hidden) inps'
-  --in ok . toResponse $
   in ok . toResponse $ concatHtml [
     toHtml "posting..",
     form hids ! [method "POST", action origAction],
     script $ toHtml "document.forms[0].submit()"
     ]
 
-ch :: (Monad m) => Request -> WebT m Response
-ch req = ok . toResponse $ concatHtml [
-  svg "bb",
-  toHtml "test"
-  ]
+checkerBool :: [[Bool]]
+checkerBool = cycle [True, False] : cycle [False, True] : checkerBool
+
+readFen :: String -> [[String]]
+readFen = map (concatMap readFenCh) . breaks (== '/') . takeWhile (/= ' ')
   where
+  readFenCh :: Char -> [String]
+  readFenCh x = case readMb [x] of
+    Just i -> replicate i ""
+    _ -> [(if x == xLow then 'b' else 'w'):[xLow]] where xLow = toLower x
+
+fenStart :: String
+fenStart = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+ch :: (Monad m) => Request -> WebT m Response
+ch req = ok . toResponse . renderPos $ readFen fen where
+  inps = procQuery $ rqInputs req
+  fen = fromMaybe fenStart $ lookup "fen" inps
+  renderPos = (table ! [border 0, cellpadding 0, cellspacing 0]) . toHtml .
+    aboves . map besides .  zipWith (zipWith (\ whiteSq piece -> td ! [
+      width w, height h, strAttr "bgcolor" $ if whiteSq then "#ff7" else "#770"
+      ] $ if null piece then noHtml else svg piece)) checkerBool
+  w = "48"
+  h = w
   svg s = object ! [
     thetype "image/svg+xml",
-    --strAttr "data" $ "../img/g/ch/" ++ s ++ ".svg"
-    --strAttr "data" $ "http://localhost/img/g/ch/" ++ s ++ ".svg"
-    strAttr "data" $ "http://localhost/img/g/ch/svg-document1.svg"
-    ] $ toHtml "lol"
-  {-
-  svg s = object ! [
-    thetype "image/svg+xml",
-    strAttr "data"
-      "http://benjamin.smedbergs.us/blog/wp-content/uploads/2008/12/\
-      \svg-document1.svg"
-    ] $ toHtml "lol"
-  -}
+    strAttr "data" $ "../img/g/ch/" ++ s ++ ".svg"
+    ] $ toHtml "svg unsupported?"
 
 main :: IO ()
 main = do
