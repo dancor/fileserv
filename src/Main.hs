@@ -186,7 +186,7 @@ ch req = ok $ toResponse resp where
   renderGm :: Game -> Html
   renderGm gm = (table ! [border 0, cellpadding 0, cellspacing 0]) . toHtml .
     aboves . map besides . splitN bdW . map (\ ((i, j), p) -> td ! [
-      width w, height h,
+      width w, height h, align "center",
       strAttr "bgcolor" $ if (i + j) `mod` 2 == 0 then "#ff7" else "#770"
       ] $ renderBdSq p) $ assocs bd
     where
