@@ -169,15 +169,20 @@ fenStart = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 ch :: (Monad m) => Request -> WebT m Response
 ch req = ok $ toResponse resp where
+
+  inps = procQuery $ rqInputs req
+  fen = fromMaybe fenStart $ lookup "fen" inps
+  useSvg = isJust $ lookup "svg" inps
+  w = fromMaybe "45" $ lookup "sqw" inps
+  h = fromMaybe w $ lookup "sqh" inps
+  moves = filter (not . all (\ x -> isDigit x || x == '.')) . words .
+    fromMaybe "" $ lookup "pgn" inps
+
   resp = case readFen fen of
     Right gm -> case foldM (flip doMvStrPure) gm moves of
       Right gm' -> renderGm gm'
       Left err -> toHtml err
     Left err -> toHtml err
-  fen = fromMaybe fenStart $ lookup "fen" inps
-  moves = filter (not . all (\ x -> isDigit x || x == '.')) . words .
-    fromMaybe "" $ lookup "pgn" inps
-  inps = procQuery $ rqInputs req
   renderGm :: Game -> Html
   renderGm gm = (table ! [border 0, cellpadding 0, cellspacing 0]) . toHtml .
     aboves . map besides . splitN bdW . map (\ ((i, j), p) -> td ! [
@@ -191,12 +196,12 @@ ch req = ok $ toResponse resp where
   renderBdSq Emp = noHtml
   renderBdSq (HasP CW p) = svg $ "w" ++ [toLower p]
   renderBdSq (HasP CB p) = svg $ "b" ++ [toLower p]
-  w = "48"
-  h = w
-  svg s = object ! [
-    thetype "image/svg+xml",
-    strAttr "data" $ "../img/g/ch/" ++ s ++ ".svg"
-    ] $ toHtml "svg unsupported?"
+  svg s = if useSvg
+    then object ! [
+      thetype "image/svg+xml",
+      strAttr "data" $ "../img/g/ch/" ++ s ++ ".svg"
+      ] $ toHtml "svg unsupported?"
+    else image ! [src $ "../img/g/ch/" ++ s ++ ".png"]
 
 main :: IO ()
 main = do
