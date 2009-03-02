@@ -2,6 +2,7 @@ import Chess
 import Control.Applicative
 import Control.Arrow hiding ((+++))
 import Control.Monad.Error
+import Control.Monad.Random
 import Control.Monad.State
 import Control.Monad.Trans
 import Data.Array hiding ((!))
@@ -15,11 +16,13 @@ import System.Directory
 import System.Environment
 import System.FilePath
 import System.Console.GetOpt
+import Text.HTML.TagSoup
 import Text.XHtml hiding (dir)
 import Network.URI
 import qualified Data.ByteString.Lazy as BS
 import qualified Data.Map as M
 import qualified Data.Set as S
+import qualified Network.HTTP as H
 
 data Opts = Opts {
   optPort :: Int
@@ -203,6 +206,73 @@ ch req = ok $ toResponse resp where
       ] $ toHtml "svg unsupported?"
     else image ! [src $ "../img/g/ch/" ++ s ++ ".png"]
 
+tagsToHtml :: [Tag] -> String
+tagsToHtml = concatMap tagToHtml where
+
+  tagToHtml :: Tag -> String
+  tagToHtml (TagOpen name attrs) = "<" ++ name ++
+    (if null attrs then "" else " " ++ interwords (map showAttr attrs)) ++ ">"
+  tagToHtml (TagClose s) = "</" ++ s ++ ">"
+  tagToHtml (TagText s) = s
+  tagToHtml _ = ""
+
+  showAttr :: (String, String) -> String
+  showAttr (name, val) =
+    name ++
+    (if not (null name) && not (null val) then "=" else "") ++
+    (if null val then "" else "\"" ++ concatMap escQ val ++ "\"")
+
+  escQ :: Char -> [Char]
+  escQ '"' = "&quot;"
+  escQ '&' = "&amp;"
+  escQ c = [c]
+
+changeFirst :: (a -> Maybe a) -> [a] -> [a]
+changeFirst _ [] = []
+changeFirst f (x:xs) = case f x of
+  Nothing -> x : changeFirst f xs
+  Just x' -> x' : xs
+
+hl :: (MonadIO m) => Request -> WebT m Response
+hl req = do
+  let
+    inps = procQuery $ rqInputs req
+    url = fromMaybe "about:blank" $ lookup "url" inps
+    after = fromMaybe "" $ lookup "after" inps
+  resp <- case parseURI url of
+    Nothing -> return $ toHtml $ "Could not parse url: " ++ show url
+    Just uri -> do
+      httpRes <- liftIO . H.simpleHTTP $ H.Request uri H.GET [] ""
+      case httpRes of
+        Left err -> return $ toHtml $ "Http request error: " ++ show err
+        Right urlResp -> do
+          let
+            tags = parseTags $ H.rspBody urlResp
+            tagsRel = map (fixRel uri) tags
+            tagsAfter = flip changeFirst tagsRel $ \ t -> case t of
+              TagText s -> if after `isInfixOf` s'
+                then Just $ TagText $
+                  subst after (after ++ "<br><a name=\"lol\"></a>") s'
+                else Nothing
+                where s' = map head $ groupBy (\ x y -> x == y && isSpace x) s
+              _ -> Nothing
+          return $ primHtml $ tagsToHtml tagsAfter
+  ok $ toResponse resp
+
+fixRel :: URI -> Tag -> Tag
+fixRel u (TagOpen name attrs) = TagOpen name $ map (fixRelAttr u) attrs where
+  fixRelAttr :: URI -> Attribute -> Attribute
+  fixRelAttr u a@(name, val) = if map toLower name == "src"
+    then case parseURIReference val >>= (`relativeTo` u) of
+      Nothing -> a
+      Just valUri -> (name, show valUri)
+    else a
+fixRel u t = t
+
+hlside :: (Monad m) => Request -> WebT m Response
+hlside _ = ok $ toResponse resp where
+  resp = toHtml "hi"
+
 main :: IO ()
 main = do
   --print myMimeTypes
@@ -215,6 +285,8 @@ main = do
   simpleHTTP nullConf {port=(optPort opts)} [
     dir "req" [withRequest $ ok . toResponse . show],
     dir "ch" [withRequest ch],
+    dir "hl" [withRequest hl],
+    dir "hlside" [withRequest hlside],
     dir "getpost" [withRequest getpost],
     dir "dopost" [withRequest dopost],
     withRequest rootOrServe]
