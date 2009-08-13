@@ -10,7 +10,7 @@ import Data.Char
 import Data.List
 import Data.Maybe
 import FUtil
-import HAppS.Server hiding (method)
+import Happstack.Server hiding (method)
 import HTTP.FileServe
 import System.Directory
 import System.Environment
