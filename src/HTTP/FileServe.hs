@@ -6,7 +6,7 @@ import Control.Monad.Reader
 import Control.Monad.Trans
 import Data.List
 import Data.Maybe
-import HAppS.Server.SimpleHTTP
+import Happstack.Server.SimpleHTTP
 import System.Directory
 import System.IO
 import System.Locale(defaultTimeLocale)
@@ -15,7 +15,7 @@ import System.Time -- (formatCalendarTime, toUTCTime,TOD(..))
 import qualified Data.ByteString.Char8 as P
 import qualified Data.ByteString.Lazy.Char8 as L
 import qualified Data.Map as Map
-import qualified HAppS.Server.SimpleHTTP as SH
+import qualified Happstack.Server.SimpleHTTP as SH
 
 -- | Serve files with a mime type map under a directory.
 --   Uses the function to transform URIs to FilePaths.

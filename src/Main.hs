@@ -282,11 +282,11 @@ main = do
     (o, n, []) -> return (foldl (flip id) defOpts o, n)
     (_, _, errs) ->
       ioError (userError (concat errs ++ usageInfo header progOpts))
-  simpleHTTP nullConf {port=(optPort opts)} [
-    dir "req" [withRequest $ ok . toResponse . show],
-    dir "ch" [withRequest ch],
-    dir "hl" [withRequest hl],
-    dir "hlside" [withRequest hlside],
-    dir "getpost" [withRequest getpost],
-    dir "dopost" [withRequest dopost],
+  simpleHTTP (Conf (optPort opts) Nothing) $ msum [
+    dir "req" $ toResponse . show <$> askRq,
+    dir "ch" $ withRequest ch,
+    dir "hl" $ withRequest hl,
+    dir "hlside" $ withRequest hlside,
+    dir "getpost" $ withRequest getpost,
+    dir "dopost" $ withRequest dopost,
     withRequest rootOrServe]
