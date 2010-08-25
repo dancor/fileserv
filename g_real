@@ -1,4 +1,8 @@
 #!/bin/sh
 set -e
-hsb
-sudo svc -t /etc/service/fileserv
+#cabal configure
+cabal build
+sudo /etc/init.d/lighttpd stop
+cp dist/build/getpost/getpost /var/www/
+cp dist/build/dopost/dopost /var/www/
+sudo /etc/init.d/lighttpd start

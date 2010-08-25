@@ -1,0 +1,5 @@
+#!/bin/sh
+set -e
+ghc -threaded --make -o getpost src/Getpost.hs -isrc -odir obj -hidir obj
+ghc -threaded --make -o dopost src/Dopost.hs -isrc -odir obj2 -hidir obj2
+sudo mv getpost dopost /var/www

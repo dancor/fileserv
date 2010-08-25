@@ -1,4 +1,3 @@
-import Chess
 import Control.Applicative
 import Control.Arrow hiding ((+++))
 import Control.Monad.Error
@@ -11,7 +10,7 @@ import Data.List
 import Data.Maybe
 import FUtil
 import Happstack.Server hiding (method)
-import HTTP.FileServe
+import Happstack.Server.FastCGI
 import System.Directory
 import System.Environment
 import System.FilePath
@@ -24,19 +23,18 @@ import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Network.HTTP as H
 
+import Chess
+
 data Opts = Opts {
-  optPort :: Int
-  }
+  optPort :: Int}
 
 defOpts = Opts {
-  optPort = 80
-  }
+  optPort = 5007}
 
 progOpts = [
   Option ['p'] ["port"]
     (ReqArg (\ port opts -> opts {optPort = read port}) "PORT")
-    "PORT to serve on"
-  ]
+    "PORT to serve on"]
 
 dirify :: FilePath -> [String] -> Html
 dirify dir fs = concatHtml $ map (\d -> toHtml
@@ -48,15 +46,6 @@ myMimeTypes = M.fromList [
   ("svg", "image/svg+xml; charset=utf-8"),
   ("mem", "text/plain; charset=utf-8")
   ] `M.union` mimeTypes
-
-rootOrServe :: (MonadIO m) => Request -> WebT m Response
-rootOrServe req =  if rqPaths req == []
-  then fileServe' "index.html" fdir myMimeTypes req
-  else fileServe' "." fdir myMimeTypes req where
-      fdir _mime _rq fp = do
-        contents <- liftIO $ getDirectoryContents fp
-        return $ toResponse $ dirify fp $ filter (`notElem` ["."] ++
-          (if fp == "." then [".."] else [])) $ contents
 
 escQuery :: [(String, String)] -> [Char]
 escQuery = let esc = escapeURIString isUnreserved
@@ -206,10 +195,8 @@ ch req = ok $ toResponse resp where
       ] $ toHtml "svg unsupported?"
     else image ! [src $ "../img/g/ch/" ++ s ++ ".png"]
 
-tagsToHtml :: [Tag] -> String
 tagsToHtml = concatMap tagToHtml where
 
-  tagToHtml :: Tag -> String
   tagToHtml (TagOpen name attrs) = "<" ++ name ++
     (if null attrs then "" else " " ++ interwords (map showAttr attrs)) ++ ">"
   tagToHtml (TagClose s) = "</" ++ s ++ ">"
@@ -259,9 +246,7 @@ hl req = do
           return $ primHtml $ tagsToHtml tagsAfter
   ok $ toResponse resp
 
-fixRel :: URI -> Tag -> Tag
 fixRel u (TagOpen name attrs) = TagOpen name $ map (fixRelAttr u) attrs where
-  fixRelAttr :: URI -> Attribute -> Attribute
   fixRelAttr u a@(name, val) = if map toLower name == "src"
     then case parseURIReference val >>= (`relativeTo` u) of
       Nothing -> a
@@ -273,8 +258,12 @@ hlside :: (Monad m) => Request -> WebT m Response
 hlside _ = ok $ toResponse resp where
   resp = toHtml "hi"
 
+simpleCGI :: (ToMessage a) => ServerPartT IO a -> IO ()
+simpleCGI = runFastCGIConcurrent 10 . serverPartToCGI
+
 main :: IO ()
-main = do
+main =
+  {-do
   --print myMimeTypes
   args <- getArgs
   let header = "lol"
@@ -282,11 +271,11 @@ main = do
     (o, n, []) -> return (foldl (flip id) defOpts o, n)
     (_, _, errs) ->
       ioError (userError (concat errs ++ usageInfo header progOpts))
-  simpleHTTP (Conf (optPort opts) Nothing) $ msum [
+  -}
+  simpleCGI $ msum [
     dir "req" $ toResponse . show <$> askRq,
     dir "ch" $ withRequest ch,
     dir "hl" $ withRequest hl,
     dir "hlside" $ withRequest hlside,
     dir "getpost" $ withRequest getpost,
-    dir "dopost" $ withRequest dopost,
-    withRequest rootOrServe]
+    dir "dopost" $ withRequest dopost]

@@ -6,9 +6,16 @@ author:         dan corson <danl@alum.mit.edu>
 synopsis:       <syn>
 build-type:     Simple
 build-depends:  base, haskell98, containers, xhtml, filepath, directory,
+                happstack-fastcgi,
                 happstack-server, mtl, bytestring, old-time, hslogger,
                 old-locale, network, FUtil, array, MonadRandom, tagsoup, HTTP
 
-executable:     fileserv
-main-is:        Main.hs
+executable:     getpost
+main-is:        Getpost.hs
 hs-source-dirs: src
+ghc-options:    -threaded
+
+executable:     dopost
+main-is:        Dopost.hs
+hs-source-dirs: src
+ghc-options:    -threaded
